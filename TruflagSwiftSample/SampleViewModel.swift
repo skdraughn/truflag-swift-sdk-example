@@ -356,7 +356,7 @@ final class SampleViewModel: ObservableObject {
                 guard let self else { return }
                 let stream = await self.client.debugLogStream()
                 for await line in stream {
-                    self.appendLog(line)
+                    self.appendSDKLogIfRelevant(line)
                 }
             }
         }
@@ -567,11 +567,31 @@ final class SampleViewModel: ObservableObject {
         return String(describing: value)
     }
 
-    private func appendLog(_ message: String) {
-        let line = "[\(isoNow())] \(message)"
+    private func appendSDKLogIfRelevant(_ line: String) {
+        guard line.hasPrefix("[TruflagSDK][DEBUG]") else { return }
+        guard shouldIncludeSDKLog(line) else { return }
         logs.append(line)
         if logs.count > 400 {
             logs.removeFirst(logs.count - 400)
         }
+    }
+
+    private func shouldIncludeSDKLog(_ line: String) -> Bool {
+        let keys = [
+            "refreshInternal[",
+            "fetchFlags[",
+            "withRetry()",
+            "HTTP GET start",
+            "HTTP GET success",
+            "HTTP GET failed",
+            "HTTP GET network_error",
+            "refresh() called source=",
+            "joined in-flight refresh",
+        ]
+        return keys.contains { line.contains($0) }
+    }
+
+    private func appendLog(_ message: String) {
+        appendSDKLogIfRelevant(message)
     }
 }
