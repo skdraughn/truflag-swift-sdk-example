@@ -154,9 +154,6 @@ final class SampleViewModel: ObservableObject {
                         applyReadResult(from: state, status: nil)
                     }
                 }
-                Task {
-                    await self.client.notifyFlagRead(flagKey: self.flagKey)
-                }
                 setBannerSuccess("Read \(flagKey) from current state.")
                 endAction()
                 return
