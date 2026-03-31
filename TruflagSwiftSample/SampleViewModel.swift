@@ -162,6 +162,9 @@ final class SampleViewModel: ObservableObject {
                         applyReadResult(from: state, status: nil)
                     }
                 }
+                Task {
+                    await self.emitExposureForCurrentFlagRead()
+                }
                 setBannerSuccess("Read \(flagKey) from current state.")
                 return
             }
@@ -534,6 +537,21 @@ final class SampleViewModel: ObservableObject {
             case .number:
                 lastFlagValue = String(Double(fallbackRawValue) ?? 0)
             }
+        }
+    }
+
+    private func emitExposureForCurrentFlagRead() async {
+        let key = flagKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        switch fallbackType {
+        case .bool:
+            let fallback = (fallbackRawValue as NSString).boolValue
+            let _: Bool = await client.getFlag(key, defaultValue: fallback)
+        case .string:
+            let _: String = await client.getFlag(key, defaultValue: fallbackRawValue)
+        case .number:
+            let fallback = Double(fallbackRawValue) ?? 0
+            let _: Double = await client.getFlag(key, defaultValue: fallback)
         }
     }
 
