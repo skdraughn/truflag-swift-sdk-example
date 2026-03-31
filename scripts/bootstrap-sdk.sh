@@ -18,14 +18,16 @@ if [ ! -f "$CHECKSUM_FILE" ]; then
 fi
 
 if command -v shasum >/dev/null 2>&1; then
-  ACTUAL="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+ACTUAL="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
 else
   echo "shasum is required to verify archive integrity." >&2
   exit 1
 fi
 
 EXPECTED="$(awk '{print $1}' "$CHECKSUM_FILE")"
-if [ "$ACTUAL" != "$EXPECTED" ]; then
+ACTUAL_LOWER="$(echo "$ACTUAL" | tr '[:upper:]' '[:lower:]')"
+EXPECTED_LOWER="$(echo "$EXPECTED" | tr '[:upper:]' '[:lower:]')"
+if [ "$ACTUAL_LOWER" != "$EXPECTED_LOWER" ]; then
   echo "Checksum mismatch for TruflagSDK.tar.gz" >&2
   echo "Expected: $EXPECTED" >&2
   echo "Actual:   $ACTUAL" >&2
