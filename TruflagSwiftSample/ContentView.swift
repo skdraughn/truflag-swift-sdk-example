@@ -118,6 +118,8 @@ struct ContentView: View {
                     DebugRow(label: "Ready", value: vm.isReady ? "yes" : "no")
                     DebugRow(label: "Stream", value: vm.streamStatus)
                     DebugRow(label: "Polling", value: vm.pollingActive ? "active" : "off")
+                    DebugRow(label: "Last stream event", value: vm.lastStreamEventAt)
+                    DebugRow(label: "Event version", value: vm.lastStreamEventVersion)
                     DebugRow(label: "Active user", value: vm.activeUserID.isEmpty ? "-" : vm.activeUserID)
                     DebugRow(label: "Last refresh", value: vm.lastRefreshStatus)
                     if !vm.lastError.isEmpty {

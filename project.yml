@@ -8,7 +8,7 @@ targets:
   TruflagSwiftSample:
     type: application
     platform: iOS
-    deploymentTarget: "15.0"
+    deploymentTarget: "17.0"
     sources:
       - path: TruflagSwiftSample
     settings:
@@ -23,7 +23,7 @@ targets:
   TruflagSwiftSampleTests:
     type: bundle.unit-test
     platform: iOS
-    deploymentTarget: "15.0"
+    deploymentTarget: "17.0"
     sources:
       - path: TruflagSwiftSampleTests
     settings:

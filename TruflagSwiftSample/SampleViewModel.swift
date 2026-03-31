@@ -38,6 +38,8 @@ final class SampleViewModel: ObservableObject {
     @Published private(set) var bannerIsError: Bool = false
     @Published private(set) var streamStatus: String = "idle"
     @Published private(set) var pollingActive: Bool = false
+    @Published private(set) var lastStreamEventAt: String = "-"
+    @Published private(set) var lastStreamEventVersion: String = "-"
     @Published private(set) var logs: [String] = []
 
     private var client = TruflagClient()
@@ -45,6 +47,7 @@ final class SampleViewModel: ObservableObject {
     private var clientSubscriptionToken: UUID?
     private var lastObservedStreamStatus: String = ""
     private var lastObservedPollingActive: Bool?
+    private var lastObservedStreamEventAt: String?
 
     func configure() {
         clearError()
@@ -84,8 +87,8 @@ final class SampleViewModel: ObservableObject {
                 isConfigured = true
                 activeUserID = user.id
                 await ensureClientSubscription()
-                await syncFromClientState(status: "Configured and refreshed")
-                setBannerSuccess("SDK configured and initial refresh completed.")
+                await syncFromClientState(status: "Configured. Waiting for first refresh...")
+                setBannerSuccess("SDK configured. Initial refresh runs in background.")
             } catch {
                 setFailure("Configure failed", error: error)
             }
@@ -341,6 +344,8 @@ final class SampleViewModel: ObservableObject {
         activeUserID = state.userId.isEmpty ? activeUserID : state.userId
         streamStatus = state.streamStatus
         pollingActive = state.pollingActive
+        lastStreamEventAt = state.lastStreamEventAt ?? "-"
+        lastStreamEventVersion = state.lastStreamEventVersion ?? "-"
         if let status {
             lastRefreshStatus = status
         }
@@ -354,6 +359,13 @@ final class SampleViewModel: ObservableObject {
         if lastObservedPollingActive != state.pollingActive {
             appendLog("Polling active -> \(state.pollingActive ? "yes" : "no")")
             lastObservedPollingActive = state.pollingActive
+        }
+        if lastObservedStreamEventAt != state.lastStreamEventAt {
+            if let at = state.lastStreamEventAt {
+                let version = state.lastStreamEventVersion ?? "-"
+                appendLog("Stream event received @ \(at), version=\(version)")
+            }
+            lastObservedStreamEventAt = state.lastStreamEventAt
         }
 
         if !flagKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
