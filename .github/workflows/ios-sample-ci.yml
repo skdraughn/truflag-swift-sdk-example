@@ -1,0 +1,49 @@
+name: ios-sample-ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ios-sample-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: macos-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Bootstrap bundled SDK
+        run: |
+          chmod +x ./scripts/bootstrap-sdk.sh
+          ./scripts/bootstrap-sdk.sh
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build (simulator)
+        run: |
+          xcodebuild \
+            -project TruflagSwiftSample.xcodeproj \
+            -scheme TruflagSwiftSample \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Test (simulator)
+        run: |
+          xcodebuild \
+            -project TruflagSwiftSample.xcodeproj \
+            -scheme TruflagSwiftSample \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            CODE_SIGNING_ALLOWED=NO \
+            test

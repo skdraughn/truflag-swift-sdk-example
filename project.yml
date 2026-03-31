@@ -1,0 +1,44 @@
+name: TruflagSwiftSample
+options:
+  minimumXcodeGenVersion: 2.38.0
+packages:
+  TruflagSDK:
+    path: vendor/TruflagSDK
+targets:
+  TruflagSwiftSample:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: TruflagSwiftSample
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.truflag.publiciosswiftsample
+        SWIFT_VERSION: 5.9
+        INFOPLIST_FILE: TruflagSwiftSample/Info.plist
+        CODE_SIGN_STYLE: Automatic
+    dependencies:
+      - package: TruflagSDK
+        product: TruflagSDK
+  TruflagSwiftSampleTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: TruflagSwiftSampleTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.truflag.publiciosswiftsample.tests
+        SWIFT_VERSION: 5.9
+    dependencies:
+      - package: TruflagSDK
+        product: TruflagSDK
+schemes:
+  TruflagSwiftSample:
+    build:
+      targets:
+        TruflagSwiftSample: all
+        TruflagSwiftSampleTests: [test]
+    test:
+      targets:
+        - name: TruflagSwiftSampleTests
