@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var vm = SampleViewModel()
     @State private var showFlagPayload = false
+    @State private var showLogs = true
 
     var body: some View {
         NavigationView {
@@ -68,7 +69,7 @@ struct ContentView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
                     HStack {
-                        Button("Read flag") { vm.readFlag() }
+                        Button("Refresh + Read flag") { vm.readFlag() }
                         Spacer()
                         Button("Send exposure") { vm.exposeCurrentFlag() }
                     }
@@ -78,7 +79,7 @@ struct ContentView: View {
                     Text("Config version: \(vm.configVersion.isEmpty ? "-" : vm.configVersion)")
                     DisclosureGroup("Flag payload JSON", isExpanded: $showFlagPayload) {
                         TextEditor(text: .constant(vm.rawPayload))
-                            .frame(minHeight: 72)
+                            .frame(minHeight: 56)
                             .font(.system(.footnote, design: .monospaced))
                     }
                 }
@@ -99,7 +100,7 @@ struct ContentView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
                     TextEditor(text: $vm.eventPropertiesJSON)
-                        .frame(minHeight: 72)
+                        .frame(minHeight: 56)
                         .font(.system(.footnote, design: .monospaced))
                     Button("Send event") {
                         vm.sendEvent()
@@ -110,6 +111,8 @@ struct ContentView: View {
                 Section("Debug") {
                     DebugRow(label: "Configured", value: vm.isConfigured ? "yes" : "no")
                     DebugRow(label: "Ready", value: vm.isReady ? "yes" : "no")
+                    DebugRow(label: "Stream", value: vm.streamStatus)
+                    DebugRow(label: "Polling", value: vm.pollingActive ? "active" : "off")
                     DebugRow(label: "Active user", value: vm.activeUserID.isEmpty ? "-" : vm.activeUserID)
                     DebugRow(label: "Last refresh", value: vm.lastRefreshStatus)
                     if !vm.lastError.isEmpty {
@@ -117,9 +120,35 @@ struct ContentView: View {
                             .foregroundColor(.red)
                     }
                 }
+
+                Section {
+                    DisclosureGroup("Live SDK logs", isExpanded: $showLogs) {
+                        if vm.logs.isEmpty {
+                            Text("No logs yet.")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                        } else {
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: 6) {
+                                    ForEach(Array(vm.logs.enumerated()), id: \.offset) { _, line in
+                                        Text(line)
+                                            .font(.system(.caption2, design: .monospaced))
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                            }
+                            .frame(maxHeight: 220)
+                        }
+                        Button("Clear logs") {
+                            vm.clearLogs()
+                        }
+                    }
+                }
             }
             .navigationTitle("Truflag iOS Sample")
+            .navigationBarTitleDisplayMode(.inline)
         }
+        .navigationViewStyle(.stack)
     }
 }
 

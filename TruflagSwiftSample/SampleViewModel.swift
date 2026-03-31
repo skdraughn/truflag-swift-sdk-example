@@ -36,13 +36,20 @@ final class SampleViewModel: ObservableObject {
     @Published private(set) var currentAction: String = ""
     @Published private(set) var bannerMessage: String = "Ready"
     @Published private(set) var bannerIsError: Bool = false
+    @Published private(set) var streamStatus: String = "idle"
+    @Published private(set) var pollingActive: Bool = false
+    @Published private(set) var logs: [String] = []
 
     private var client = TruflagClient()
     private var refreshTask: Task<Void, Never>?
     private var clientSubscriptionToken: UUID?
+    private var lastObservedStreamStatus: String = ""
+    private var lastObservedPollingActive: Bool?
 
     func configure() {
         clearError()
+        logs.removeAll(keepingCapacity: true)
+        appendLog("Starting configure")
         guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             lastError = "Client-side ID (API key) is required"
             return
@@ -55,11 +62,25 @@ final class SampleViewModel: ObservableObject {
         let attributes = buildAttributes()
         let user = TruflagUser(id: userId.trimmingCharacters(in: .whitespacesAndNewlines), attributes: attributes)
         let options = TruflagConfigureOptions(apiKey: apiKey, user: user, baseURL: baseURL)
+        let tunedOptions = TruflagConfigureOptions(
+            apiKey: options.apiKey,
+            user: options.user,
+            baseURL: options.baseURL,
+            streamURL: options.streamURL,
+            streamEnabled: options.streamEnabled,
+            pollingIntervalMs: 5_000,
+            requestTimeoutMs: options.requestTimeoutMs,
+            cacheTtlMs: options.cacheTtlMs,
+            telemetryFlushIntervalMs: options.telemetryFlushIntervalMs,
+            telemetryBatchSize: options.telemetryBatchSize,
+            telemetryEnabled: options.telemetryEnabled
+        )
 
         Task {
             do {
                 beginAction("Configuring SDK...")
-                try await client.configure(options)
+                try await client.configure(tunedOptions)
+                appendLog("Configured SDK. streamEnabled=\(tunedOptions.streamEnabled), streamURL=\(tunedOptions.streamURL.absoluteString)")
                 isConfigured = true
                 activeUserID = user.id
                 await ensureClientSubscription()
@@ -78,6 +99,7 @@ final class SampleViewModel: ObservableObject {
             do {
                 beginAction("Refreshing flags...")
                 try await client.refresh()
+                appendLog("Manual refresh succeeded")
                 await syncFromClientState(status: "Refresh succeeded @ \(isoNow())")
                 clearError()
                 setBannerSuccess("Flags refreshed.")
@@ -93,6 +115,16 @@ final class SampleViewModel: ObservableObject {
         guard guardConfigured() else { return }
         Task {
             beginAction("Reading flag...")
+            do {
+                // Refresh first so "Read flag" behaves like a fresh read against latest dashboard state.
+                try await client.refresh()
+                await syncFromClientState(status: "Read after refresh @ \(isoNow())")
+            } catch {
+                // Keep reading local state even if refresh fails.
+                setBannerError("Refresh before read failed. Reading cached value.")
+                appendLog("Refresh before read failed; using cached state")
+            }
+
             switch fallbackType {
             case .bool:
                 let fallback = (fallbackRawValue as NSString).boolValue
@@ -105,6 +137,11 @@ final class SampleViewModel: ObservableObject {
                 let fallback = Double(fallbackRawValue) ?? 0
                 let value: Double = await client.getFlag(flagKey, defaultValue: fallback)
                 lastFlagValue = String(value)
+            }
+
+            let state = await client.getState()
+            if let raw = state.flags[flagKey]?.value.value {
+                lastFlagValue = renderRawValue(raw)
             }
 
             let payload = await client.getFlagPayload(flagKey) ?? [:]
@@ -127,6 +164,7 @@ final class SampleViewModel: ObservableObject {
                 await syncFromClientState(status: "Login succeeded")
                 clearError()
                 setBannerSuccess("Logged in as \(user.id).")
+                appendLog("Logged in as \(user.id)")
             } catch {
                 setFailure("Login failed", error: error)
             }
@@ -143,6 +181,7 @@ final class SampleViewModel: ObservableObject {
                 await syncFromClientState(status: "Attributes updated")
                 clearError()
                 setBannerSuccess("Attributes updated.")
+                appendLog("Updated attributes")
             } catch {
                 setFailure("Set attributes failed", error: error)
             }
@@ -160,6 +199,7 @@ final class SampleViewModel: ObservableObject {
                 await syncFromClientState(status: "Logout succeeded")
                 clearError()
                 setBannerSuccess("Logged out.")
+                appendLog("Logged out")
             } catch {
                 setFailure("Logout failed", error: error)
             }
@@ -177,6 +217,7 @@ final class SampleViewModel: ObservableObject {
                 lastRefreshStatus = "Event sent @ \(isoNow())"
                 clearError()
                 setBannerSuccess("Event \(eventName) sent.")
+                appendLog("Sent event \(eventName)")
             } catch {
                 setFailure("Track failed", error: error)
             }
@@ -193,6 +234,7 @@ final class SampleViewModel: ObservableObject {
                 lastRefreshStatus = "Exposure sent @ \(isoNow())"
                 clearError()
                 setBannerSuccess("Exposure sent for \(flagKey).")
+                appendLog("Sent exposure for \(flagKey)")
             } catch {
                 setFailure("Expose failed", error: error)
             }
@@ -203,7 +245,11 @@ final class SampleViewModel: ObservableObject {
     func toggleAutoRefresh() {
         autoRefreshEnabled.toggle()
         refreshTask?.cancel()
-        guard autoRefreshEnabled else { return }
+        guard autoRefreshEnabled else {
+            appendLog("Stopped manual auto-refresh loop")
+            return
+        }
+        appendLog("Started manual auto-refresh loop (15s)")
 
         refreshTask = Task {
             while !Task.isCancelled {
@@ -213,6 +259,7 @@ final class SampleViewModel: ObservableObject {
                     await MainActor.run {
                         self.lastRefreshStatus = "Manual auto-refresh succeeded @ \(self.isoNow())"
                         self.setBannerSuccess("Auto refresh succeeded.")
+                        self.appendLog("Manual auto-refresh succeeded")
                     }
                 } catch {
                     await MainActor.run {
@@ -282,11 +329,21 @@ final class SampleViewModel: ObservableObject {
         let state = await client.getState()
         isReady = state.ready
         activeUserID = state.userId.isEmpty ? activeUserID : state.userId
+        streamStatus = state.streamStatus
+        pollingActive = state.pollingActive
         if let status {
             lastRefreshStatus = status
         }
         if let lastError = state.lastError, !lastError.isEmpty {
             self.lastError = lastError
+        }
+        if lastObservedStreamStatus != state.streamStatus {
+            appendLog("Stream status -> \(state.streamStatus)")
+            lastObservedStreamStatus = state.streamStatus
+        }
+        if lastObservedPollingActive != state.pollingActive {
+            appendLog("Polling active -> \(state.pollingActive ? "yes" : "no")")
+            lastObservedPollingActive = state.pollingActive
         }
 
         if !flagKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -320,9 +377,40 @@ final class SampleViewModel: ObservableObject {
     private func setFailure(_ prefix: String, error: Error) {
         lastError = "\(prefix): \(error.localizedDescription)"
         setBannerError(lastError)
+        appendLog(lastError)
+    }
+
+    func clearLogs() {
+        logs.removeAll(keepingCapacity: true)
+        appendLog("Logs cleared")
     }
 
     private func isoNow() -> String {
         ISO8601DateFormatter().string(from: Date())
+    }
+
+    private func renderRawValue(_ value: Any) -> String {
+        if value is NSNull { return "null" }
+        if let bool = value as? Bool { return bool ? "true" : "false" }
+        if let int = value as? Int { return String(int) }
+        if let double = value as? Double { return String(double) }
+        if let string = value as? String { return string }
+        if let object = value as? [String: Any] {
+            return prettyJSON(object)
+        }
+        if let array = value as? [Any],
+           let data = try? JSONSerialization.data(withJSONObject: array, options: [.prettyPrinted]),
+           let text = String(data: data, encoding: .utf8) {
+            return text
+        }
+        return String(describing: value)
+    }
+
+    private func appendLog(_ message: String) {
+        let line = "[\(isoNow())] \(message)"
+        logs.append(line)
+        if logs.count > 400 {
+            logs.removeFirst(logs.count - 400)
+        }
     }
 }
