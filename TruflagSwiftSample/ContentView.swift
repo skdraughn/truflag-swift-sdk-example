@@ -149,6 +149,9 @@ struct ContentView: View {
                         Button("Clear logs") {
                             vm.clearLogs()
                         }
+                        Button("Copy logs") {
+                            vm.copyLogs()
+                        }
                     }
                 }
             }

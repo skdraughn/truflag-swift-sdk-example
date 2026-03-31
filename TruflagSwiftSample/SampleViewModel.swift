@@ -1,5 +1,8 @@
 import Foundation
 import TruflagSDK
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @MainActor
 final class SampleViewModel: ObservableObject {
@@ -109,6 +112,7 @@ final class SampleViewModel: ObservableObject {
 
     func refresh() {
         guard guardConfigured() else { return }
+        appendLog("UI action -> refresh()")
         Task {
             do {
                 beginAction("Refreshing flags...")
@@ -126,10 +130,12 @@ final class SampleViewModel: ObservableObject {
     }
 
     func readFlag() {
+        appendLog("UI action -> readFlag(state)")
         readFlag(refreshFirst: false)
     }
 
     func refreshAndReadFlag() {
+        appendLog("UI action -> refreshAndReadFlag()")
         readFlag(refreshFirst: true)
     }
 
@@ -467,6 +473,17 @@ final class SampleViewModel: ObservableObject {
     func clearLogs() {
         logs.removeAll(keepingCapacity: true)
         appendLog("Logs cleared")
+    }
+
+    func copyLogs() {
+        let text = logs.joined(separator: "\n")
+#if canImport(UIKit)
+        UIPasteboard.general.string = text
+        setBannerSuccess("Logs copied to clipboard.")
+#else
+        setBannerError("Clipboard copy is unavailable on this platform.")
+#endif
+        appendLog("Copied logs to clipboard")
     }
 
     private func isoNow() -> String {
