@@ -112,17 +112,27 @@ final class SampleViewModel: ObservableObject {
     }
 
     func readFlag() {
+        readFlag(refreshFirst: false)
+    }
+
+    func refreshAndReadFlag() {
+        readFlag(refreshFirst: true)
+    }
+
+    private func readFlag(refreshFirst: Bool) {
         guard guardConfigured() else { return }
         Task {
             beginAction("Reading flag...")
-            do {
-                // Refresh first so "Read flag" behaves like a fresh read against latest dashboard state.
-                try await client.refresh()
-                await syncFromClientState(status: "Read after refresh @ \(isoNow())")
-            } catch {
-                // Keep reading local state even if refresh fails.
-                setBannerError("Refresh before read failed. Reading cached value.")
-                appendLog("Refresh before read failed; using cached state")
+            if refreshFirst {
+                do {
+                    try await client.refresh()
+                    await syncFromClientState(status: "Read after refresh @ \(isoNow())")
+                } catch {
+                    setBannerError("Refresh before read failed. Reading cached value.")
+                    appendLog("Refresh before read failed; using cached state")
+                }
+            } else {
+                await syncFromClientState(status: "Read from current SDK state @ \(isoNow())")
             }
 
             switch fallbackType {
@@ -148,7 +158,7 @@ final class SampleViewModel: ObservableObject {
             assignmentReason = payload["reason"] as? String ?? ""
             configVersion = payload["configVersion"] as? String ?? ""
             rawPayload = prettyJSON(payload)
-            setBannerSuccess("Read flag \(flagKey).")
+            setBannerSuccess(refreshFirst ? "Refreshed and read \(flagKey)." : "Read \(flagKey) from current state.")
             endAction()
         }
     }

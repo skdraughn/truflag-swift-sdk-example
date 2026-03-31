@@ -69,9 +69,14 @@ struct ContentView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
                     HStack {
-                        Button("Refresh + Read flag") { vm.readFlag() }
+                        Button("Read flag (state)") { vm.readFlag() }
                         Spacer()
+                        Button("Refresh + Read") { vm.refreshAndReadFlag() }
+                    }
+                    .disabled(!vm.currentAction.isEmpty)
+                    HStack {
                         Button("Send exposure") { vm.exposeCurrentFlag() }
+                        Spacer()
                     }
                     .disabled(!vm.currentAction.isEmpty)
                     Text("Last value: \(vm.lastFlagValue)")
