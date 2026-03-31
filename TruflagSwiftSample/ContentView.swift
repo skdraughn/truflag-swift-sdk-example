@@ -84,10 +84,10 @@ struct ContentView: View {
                 }
 
                 Section("Debug") {
-                    LabeledContent("Configured", value: vm.isConfigured ? "yes" : "no")
-                    LabeledContent("Ready", value: vm.isReady ? "yes" : "no")
-                    LabeledContent("Active user", value: vm.activeUserID.isEmpty ? "-" : vm.activeUserID)
-                    LabeledContent("Last refresh", value: vm.lastRefreshStatus)
+                    DebugRow(label: "Configured", value: vm.isConfigured ? "yes" : "no")
+                    DebugRow(label: "Ready", value: vm.isReady ? "yes" : "no")
+                    DebugRow(label: "Active user", value: vm.activeUserID.isEmpty ? "-" : vm.activeUserID)
+                    DebugRow(label: "Last refresh", value: vm.lastRefreshStatus)
                     if !vm.lastError.isEmpty {
                         Text(vm.lastError)
                             .foregroundColor(.red)
@@ -95,6 +95,21 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("Truflag iOS Sample")
+        }
+    }
+}
+
+private struct DebugRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(value)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.trailing)
         }
     }
 }
