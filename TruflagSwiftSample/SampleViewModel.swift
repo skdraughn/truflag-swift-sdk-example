@@ -158,7 +158,7 @@ final class SampleViewModel: ObservableObject {
                 lastFlagValue = renderRawValue(raw)
             }
 
-            let payload = await client.getFlagPayload(flagKey) ?? [:]
+            let payload = payloadFromState(state, flagKey: flagKey)
             assignmentReason = payload["reason"] as? String ?? ""
             let stateAfterRead = await client.getState()
             configVersion = stateAfterRead.configVersion ?? (payload["configVersion"] as? String ?? "")
@@ -371,7 +371,7 @@ final class SampleViewModel: ObservableObject {
         }
 
         if !flagKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let payload = await client.getFlagPayload(flagKey) ?? [:]
+            let payload = payloadFromState(state, flagKey: flagKey)
             assignmentReason = payload["reason"] as? String ?? ""
             configVersion = state.configVersion ?? (payload["configVersion"] as? String ?? "")
             rawPayload = prettyJSON(payload)
@@ -411,6 +411,11 @@ final class SampleViewModel: ObservableObject {
 
     private func isoNow() -> String {
         ISO8601DateFormatter().string(from: Date())
+    }
+
+    private func payloadFromState(_ state: TruflagClientState, flagKey: String) -> [String: Any] {
+        guard let payload = state.flags[flagKey]?.payload else { return [:] }
+        return payload.mapValues { $0.value }
     }
 
     private func renderRawValue(_ value: Any) -> String {
