@@ -17,7 +17,13 @@ final class SampleViewModel: ObservableObject {
     @Published var country: String = "US"
     @Published var hasCompletedOnboarding: Bool = true
     @Published var createdAtISO: String = "2026-03-27T19:19:50.621Z"
-    @Published var flagKey: String = "economyvariation"
+    @Published var flagKey: String = "economyvariation" {
+        didSet {
+            Task { @MainActor in
+                self.restartFlagStreamObservation()
+            }
+        }
+    }
     @Published var fallbackType: FallbackType = .string
     @Published var fallbackRawValue: String = "coins"
     @Published var eventName: String = "demo_event"
@@ -44,10 +50,14 @@ final class SampleViewModel: ObservableObject {
 
     private var client = TruflagClient()
     private var refreshTask: Task<Void, Never>?
-    private var clientSubscriptionToken: UUID?
+    private var stateStreamTask: Task<Void, Never>?
+    private var logStreamTask: Task<Void, Never>?
+    private var flagStreamTask: Task<Void, Never>?
+    private var observedFlagKey: String = ""
     private var lastObservedStreamStatus: String = ""
     private var lastObservedPollingActive: Bool?
     private var lastObservedStreamEventAt: String?
+    private var cachedState: TruflagClientState?
 
     func configure() {
         clearError()
@@ -76,7 +86,8 @@ final class SampleViewModel: ObservableObject {
             cacheTtlMs: options.cacheTtlMs,
             telemetryFlushIntervalMs: options.telemetryFlushIntervalMs,
             telemetryBatchSize: options.telemetryBatchSize,
-            telemetryEnabled: options.telemetryEnabled
+            telemetryEnabled: options.telemetryEnabled,
+            debugLoggingEnabled: true
         )
 
         Task {
@@ -86,7 +97,7 @@ final class SampleViewModel: ObservableObject {
                 appendLog("Configured SDK. streamEnabled=\(tunedOptions.streamEnabled), streamURL=\(tunedOptions.streamURL.absoluteString)")
                 isConfigured = true
                 activeUserID = user.id
-                await ensureClientSubscription()
+                await ensureClientStreams()
                 await syncFromClientState(status: "Configured. Waiting for first refresh...")
                 setBannerSuccess("SDK configured. Initial refresh runs in background.")
             } catch {
@@ -135,35 +146,29 @@ final class SampleViewModel: ObservableObject {
                     appendLog("Refresh before read failed; using cached state")
                 }
             } else {
-                await client.waitForInFlightRefresh(timeoutMs: 1800)
-                await syncFromClientState(status: "Read from current SDK state @ \(isoNow())")
-            }
-
-            switch fallbackType {
-            case .bool:
-                let fallback = (fallbackRawValue as NSString).boolValue
-                let value: Bool = await client.getFlag(flagKey, defaultValue: fallback)
-                lastFlagValue = String(value)
-            case .string:
-                let value: String = await client.getFlag(flagKey, defaultValue: fallbackRawValue)
-                lastFlagValue = value
-            case .number:
-                let fallback = Double(fallbackRawValue) ?? 0
-                let value: Double = await client.getFlag(flagKey, defaultValue: fallback)
-                lastFlagValue = String(value)
+                if let state = cachedState {
+                    applyReadResult(from: state, status: "Read from current SDK state @ \(isoNow())")
+                } else {
+                    await syncFromClientState(status: "Read from current SDK state @ \(isoNow())")
+                    if let state = cachedState {
+                        applyReadResult(from: state, status: nil)
+                    }
+                }
+                Task {
+                    await self.client.notifyFlagRead(flagKey: self.flagKey)
+                }
+                setBannerSuccess("Read \(flagKey) from current state.")
+                endAction()
+                return
             }
 
             let state = await client.getState()
-            if let raw = state.flags[flagKey]?.value.value {
-                lastFlagValue = renderRawValue(raw)
-            }
-
+            applyReadResult(from: state, status: nil)
             let payload = payloadFromState(state, flagKey: flagKey)
             assignmentReason = payload["reason"] as? String ?? ""
-            let stateAfterRead = await client.getState()
-            configVersion = stateAfterRead.configVersion ?? (payload["configVersion"] as? String ?? "")
+            configVersion = state.configVersion ?? (payload["configVersion"] as? String ?? "")
             rawPayload = prettyJSON(payload)
-            setBannerSuccess(refreshFirst ? "Refreshed and read \(flagKey)." : "Read \(flagKey) from current state.")
+            setBannerSuccess("Refreshed and read \(flagKey).")
             endAction()
         }
     }
@@ -329,19 +334,53 @@ final class SampleViewModel: ObservableObject {
         lastError = ""
     }
 
-    private func ensureClientSubscription() async {
-        guard clientSubscriptionToken == nil else { return }
-        let token = await client.subscribe { [weak self] in
-            guard let self else { return }
-            Task { @MainActor in
-                await self.syncFromClientState(status: "Live update received @ \(self.isoNow())")
+    private func ensureClientStreams() async {
+        if stateStreamTask == nil {
+            stateStreamTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                let stream = await self.client.stateStream()
+                for await state in stream {
+                    self.applyStateSnapshot(state, status: nil)
+                }
             }
         }
-        clientSubscriptionToken = token
+
+        if logStreamTask == nil {
+            logStreamTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                let stream = await self.client.debugLogStream()
+                for await line in stream {
+                    self.appendLog(line)
+                }
+            }
+        }
+
+        restartFlagStreamObservation()
+    }
+
+    private func restartFlagStreamObservation() {
+        let key = flagKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isConfigured, !key.isEmpty else { return }
+        guard observedFlagKey != key || flagStreamTask == nil else { return }
+
+        flagStreamTask?.cancel()
+        observedFlagKey = key
+        flagStreamTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let stream = await self.client.flagStream(key)
+            for await flag in stream {
+                self.applyFlagSnapshot(flag)
+            }
+        }
     }
 
     private func syncFromClientState(status: String? = nil) async {
         let state = await client.getState()
+        applyStateSnapshot(state, status: status)
+    }
+
+    private func applyStateSnapshot(_ state: TruflagClientState, status: String?) {
+        cachedState = state
         isReady = state.ready
         activeUserID = state.userId.isEmpty ? activeUserID : state.userId
         streamStatus = state.streamStatus
@@ -371,6 +410,7 @@ final class SampleViewModel: ObservableObject {
         }
 
         if !flagKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            applyReadResult(from: state, status: nil)
             let payload = payloadFromState(state, flagKey: flagKey)
             assignmentReason = payload["reason"] as? String ?? ""
             configVersion = state.configVersion ?? (payload["configVersion"] as? String ?? "")
@@ -378,6 +418,29 @@ final class SampleViewModel: ObservableObject {
         } else {
             configVersion = state.configVersion ?? ""
         }
+    }
+
+    private func applyFlagSnapshot(_ flag: TruflagFlag?) {
+        guard !flagKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if let raw = flag?.value.value {
+            lastFlagValue = renderRawValue(raw)
+        } else {
+            switch fallbackType {
+            case .bool:
+                lastFlagValue = String((fallbackRawValue as NSString).boolValue)
+            case .string:
+                lastFlagValue = fallbackRawValue
+            case .number:
+                lastFlagValue = String(Double(fallbackRawValue) ?? 0)
+            }
+        }
+
+        let payload = (flag?.payload ?? [:]).mapValues { $0.value }
+        assignmentReason = payload["reason"] as? String ?? ""
+        if configVersion.isEmpty {
+            configVersion = payload["configVersion"] as? String ?? ""
+        }
+        rawPayload = prettyJSON(payload)
     }
 
     private func beginAction(_ title: String) {
@@ -416,6 +479,24 @@ final class SampleViewModel: ObservableObject {
     private func payloadFromState(_ state: TruflagClientState, flagKey: String) -> [String: Any] {
         guard let payload = state.flags[flagKey]?.payload else { return [:] }
         return payload.mapValues { $0.value }
+    }
+
+    private func applyReadResult(from state: TruflagClientState, status: String?) {
+        if let status {
+            lastRefreshStatus = status
+        }
+        if let raw = state.flags[flagKey]?.value.value {
+            lastFlagValue = renderRawValue(raw)
+        } else {
+            switch fallbackType {
+            case .bool:
+                lastFlagValue = String((fallbackRawValue as NSString).boolValue)
+            case .string:
+                lastFlagValue = fallbackRawValue
+            case .number:
+                lastFlagValue = String(Double(fallbackRawValue) ?? 0)
+            }
+        }
     }
 
     private func renderRawValue(_ value: Any) -> String {
