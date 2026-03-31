@@ -37,6 +37,20 @@ GitHub Actions (`.github/workflows/ios-sample-ci.yml`) performs:
 2. Xcode project generation
 3. iOS simulator build + tests
 
+GitHub Actions (`.github/workflows/ios-unsigned-ipa.yml`) can produce an unsigned device `.ipa` artifact for sideload workflows.
+
+## Build an IPA from GitHub Actions (Windows-friendly)
+
+1. Open the repo on GitHub.
+2. Go to **Actions** -> **ios-unsigned-ipa**.
+3. Click **Run workflow**.
+4. Wait for job completion, then open the run and download artifact `TruflagSwiftSample-unsigned-ipa`.
+5. Use Sideloadly/AltStore on Windows to sign and install that `.ipa` with your Apple ID.
+
+Notes:
+- The artifact is intentionally unsigned in CI.
+- CI does not require Apple signing certificates for this path.
+
 ## Updating the bundled SDK tarball
 
 From your private monorepo root:
