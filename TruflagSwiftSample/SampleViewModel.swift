@@ -135,6 +135,7 @@ final class SampleViewModel: ObservableObject {
                     appendLog("Refresh before read failed; using cached state")
                 }
             } else {
+                await client.waitForInFlightRefresh(timeoutMs: 1800)
                 await syncFromClientState(status: "Read from current SDK state @ \(isoNow())")
             }
 
@@ -159,7 +160,8 @@ final class SampleViewModel: ObservableObject {
 
             let payload = await client.getFlagPayload(flagKey) ?? [:]
             assignmentReason = payload["reason"] as? String ?? ""
-            configVersion = payload["configVersion"] as? String ?? ""
+            let stateAfterRead = await client.getState()
+            configVersion = stateAfterRead.configVersion ?? (payload["configVersion"] as? String ?? "")
             rawPayload = prettyJSON(payload)
             setBannerSuccess(refreshFirst ? "Refreshed and read \(flagKey)." : "Read \(flagKey) from current state.")
             endAction()
@@ -371,7 +373,7 @@ final class SampleViewModel: ObservableObject {
         if !flagKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let payload = await client.getFlagPayload(flagKey) ?? [:]
             assignmentReason = payload["reason"] as? String ?? ""
-            configVersion = payload["configVersion"] as? String ?? (state.configVersion ?? "")
+            configVersion = state.configVersion ?? (payload["configVersion"] as? String ?? "")
             rawPayload = prettyJSON(payload)
         } else {
             configVersion = state.configVersion ?? ""

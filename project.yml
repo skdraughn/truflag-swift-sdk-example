@@ -14,7 +14,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.truflag.publiciosswiftsample
-        SWIFT_VERSION: 5.9
+        SWIFT_VERSION: 6.0
         INFOPLIST_FILE: TruflagSwiftSample/Info.plist
         CODE_SIGN_STYLE: Automatic
     dependencies:
@@ -29,7 +29,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.truflag.publiciosswiftsample.tests
-        SWIFT_VERSION: 5.9
+        SWIFT_VERSION: 6.0
     dependencies:
       - package: TruflagSDK
         product: TruflagSDK
