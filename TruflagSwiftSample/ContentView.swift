@@ -46,12 +46,13 @@ struct ContentView: View {
                     TextField("createdAt ISO", text: $vm.createdAtISO)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
-                    HStack {
+                    VStack(spacing: 10) {
                         Button("Login") { vm.login() }
-                        Spacer()
+                            .fullWidthTapRow()
                         Button("Set attributes") { vm.setAttributes() }
-                        Spacer()
+                            .fullWidthTapRow()
                         Button("Logout") { vm.logout() }
+                            .fullWidthTapRow()
                     }
                     .disabled(!vm.currentAction.isEmpty)
                 }
@@ -68,16 +69,15 @@ struct ContentView: View {
                     TextField("Fallback value", text: $vm.fallbackRawValue)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
-                    HStack {
+                    VStack(spacing: 10) {
                         Button("Read flag (state)") { vm.readFlag() }
-                        Spacer()
+                            .fullWidthTapRow()
                         Button("Refresh + Read") { vm.refreshAndReadFlag() }
+                            .fullWidthTapRow()
                     }
                     .disabled(!vm.currentAction.isEmpty)
-                    HStack {
-                        Button("Send exposure") { vm.exposeCurrentFlag() }
-                        Spacer()
-                    }
+                    Button("Send exposure") { vm.exposeCurrentFlag() }
+                        .fullWidthTapRow()
                     .disabled(!vm.currentAction.isEmpty)
                     Text("Last value: \(vm.lastFlagValue)")
                     Text("Reason: \(vm.assignmentReason.isEmpty ? "-" : vm.assignmentReason)")
@@ -90,12 +90,13 @@ struct ContentView: View {
                 }
 
                 Section("Refresh / fallback polling") {
-                    HStack {
+                    VStack(spacing: 10) {
                         Button("Refresh now") { vm.refresh() }
-                        Spacer()
+                            .fullWidthTapRow()
                         Button(vm.autoRefreshEnabled ? "Stop auto-refresh" : "Start auto-refresh") {
                             vm.toggleAutoRefresh()
                         }
+                        .fullWidthTapRow()
                     }
                     .disabled(!vm.currentAction.isEmpty)
                 }
@@ -159,6 +160,14 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .navigationViewStyle(.stack)
+    }
+}
+
+private extension View {
+    func fullWidthTapRow() -> some View {
+        self
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
     }
 }
 

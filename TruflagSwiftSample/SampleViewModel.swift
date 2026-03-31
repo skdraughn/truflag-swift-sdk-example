@@ -61,8 +61,10 @@ final class SampleViewModel: ObservableObject {
     private var lastObservedPollingActive: Bool?
     private var lastObservedStreamEventAt: String?
     private var cachedState: TruflagClientState?
+    private var lastActionStartedAtMs: Int64 = 0
 
     func configure() {
+        guard startAction("Configuring SDK...") else { return }
         clearError()
         logs.removeAll(keepingCapacity: true)
         appendLog("Starting configure")
@@ -94,8 +96,8 @@ final class SampleViewModel: ObservableObject {
         )
 
         Task {
+            defer { endAction() }
             do {
-                beginAction("Configuring SDK...")
                 try await client.configure(tunedOptions)
                 appendLog("Configured SDK. streamEnabled=\(tunedOptions.streamEnabled), streamURL=\(tunedOptions.streamURL.absoluteString)")
                 isConfigured = true
@@ -106,16 +108,16 @@ final class SampleViewModel: ObservableObject {
             } catch {
                 setFailure("Configure failed", error: error)
             }
-            endAction()
         }
     }
 
     func refresh() {
         guard guardConfigured() else { return }
+        guard startAction("Refreshing flags...") else { return }
         appendLog("UI action -> refresh()")
         Task {
+            defer { endAction() }
             do {
-                beginAction("Refreshing flags...")
                 try await client.refresh()
                 appendLog("Manual refresh succeeded")
                 await syncFromClientState(status: "Refresh succeeded @ \(isoNow())")
@@ -125,7 +127,6 @@ final class SampleViewModel: ObservableObject {
                 lastRefreshStatus = "Refresh failed @ \(isoNow())"
                 setFailure("Refresh failed", error: error)
             }
-            endAction()
         }
     }
 
@@ -141,8 +142,9 @@ final class SampleViewModel: ObservableObject {
 
     private func readFlag(refreshFirst: Bool) {
         guard guardConfigured() else { return }
+        guard startAction("Reading flag...") else { return }
         Task {
-            beginAction("Reading flag...")
+            defer { endAction() }
             if refreshFirst {
                 do {
                     try await client.refresh()
@@ -161,7 +163,6 @@ final class SampleViewModel: ObservableObject {
                     }
                 }
                 setBannerSuccess("Read \(flagKey) from current state.")
-                endAction()
                 return
             }
 
@@ -172,15 +173,16 @@ final class SampleViewModel: ObservableObject {
             configVersion = state.configVersion ?? (payload["configVersion"] as? String ?? "")
             rawPayload = prettyJSON(payload)
             setBannerSuccess("Refreshed and read \(flagKey).")
-            endAction()
         }
     }
 
     func login() {
         guard guardConfigured() else { return }
+        guard startAction("Logging in...") else { return }
+        appendLog("UI action -> login()")
         Task {
+            defer { endAction() }
             do {
-                beginAction("Logging in...")
                 let user = TruflagUser(id: userId.trimmingCharacters(in: .whitespacesAndNewlines), attributes: buildAttributes())
                 try await client.login(user: user)
                 activeUserID = user.id
@@ -191,15 +193,16 @@ final class SampleViewModel: ObservableObject {
             } catch {
                 setFailure("Login failed", error: error)
             }
-            endAction()
         }
     }
 
     func setAttributes() {
         guard guardConfigured() else { return }
+        guard startAction("Updating attributes...") else { return }
+        appendLog("UI action -> setAttributes()")
         Task {
+            defer { endAction() }
             do {
-                beginAction("Updating attributes...")
                 try await client.setAttributes(buildAttributes())
                 await syncFromClientState(status: "Attributes updated")
                 clearError()
@@ -208,15 +211,16 @@ final class SampleViewModel: ObservableObject {
             } catch {
                 setFailure("Set attributes failed", error: error)
             }
-            endAction()
         }
     }
 
     func logout() {
         guard guardConfigured() else { return }
+        guard startAction("Logging out...") else { return }
+        appendLog("UI action -> logout()")
         Task {
+            defer { endAction() }
             do {
-                beginAction("Logging out...")
                 try await client.logout()
                 activeUserID = "anonymous"
                 await syncFromClientState(status: "Logout succeeded")
@@ -226,15 +230,16 @@ final class SampleViewModel: ObservableObject {
             } catch {
                 setFailure("Logout failed", error: error)
             }
-            endAction()
         }
     }
 
     func sendEvent() {
         guard guardConfigured() else { return }
+        guard startAction("Sending event...") else { return }
+        appendLog("UI action -> sendEvent()")
         Task {
+            defer { endAction() }
             do {
-                beginAction("Sending event...")
                 let props = parseProperties(eventPropertiesJSON)
                 try await client.track(eventName: eventName, properties: props)
                 lastRefreshStatus = "Event sent @ \(isoNow())"
@@ -244,15 +249,16 @@ final class SampleViewModel: ObservableObject {
             } catch {
                 setFailure("Track failed", error: error)
             }
-            endAction()
         }
     }
 
     func exposeCurrentFlag() {
         guard guardConfigured() else { return }
+        guard startAction("Sending exposure...") else { return }
+        appendLog("UI action -> exposeCurrentFlag()")
         Task {
+            defer { endAction() }
             do {
-                beginAction("Sending exposure...")
                 try await client.expose(flagKey: flagKey)
                 lastRefreshStatus = "Exposure sent @ \(isoNow())"
                 clearError()
@@ -261,7 +267,6 @@ final class SampleViewModel: ObservableObject {
             } catch {
                 setFailure("Expose failed", error: error)
             }
-            endAction()
         }
     }
 
@@ -450,6 +455,21 @@ final class SampleViewModel: ObservableObject {
         currentAction = title
     }
 
+    private func startAction(_ title: String) -> Bool {
+        if !currentAction.isEmpty {
+            appendLog("Ignored action '\(title)' because '\(currentAction)' is in progress")
+            return false
+        }
+        let now = nowMs()
+        if now - lastActionStartedAtMs < 350 {
+            appendLog("Ignored action '\(title)' due to tap cooldown")
+            return false
+        }
+        lastActionStartedAtMs = now
+        beginAction(title)
+        return true
+    }
+
     private func endAction() {
         currentAction = ""
     }
@@ -488,6 +508,10 @@ final class SampleViewModel: ObservableObject {
 
     private func isoNow() -> String {
         ISO8601DateFormatter().string(from: Date())
+    }
+
+    private func nowMs() -> Int64 {
+        Int64(Date().timeIntervalSince1970 * 1000)
     }
 
     private func payloadFromState(_ state: TruflagClientState, flagKey: String) -> [String: Any] {
