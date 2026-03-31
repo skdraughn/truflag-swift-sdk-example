@@ -132,41 +132,36 @@ final class SampleViewModel: ObservableObject {
 
     func readFlag() {
         appendLog("UI action -> readFlag(state)")
-        readFlag(refreshFirst: false)
+        guard guardConfigured() else { return }
+        if let state = cachedState {
+            applyReadResult(from: state, status: "Read from current SDK state @ \(isoNow())")
+            let payload = payloadFromState(state, flagKey: flagKey)
+            assignmentReason = payload["reason"] as? String ?? ""
+            configVersion = state.configVersion ?? (payload["configVersion"] as? String ?? "")
+            rawPayload = prettyJSON(payload)
+        } else {
+            Task {
+                await syncFromClientState(status: "Read from current SDK state @ \(isoNow())")
+            }
+        }
+        Task {
+            await self.emitExposureForCurrentFlagRead()
+        }
+        setBannerSuccess("Read \(flagKey) from current state.")
     }
 
     func refreshAndReadFlag() {
         appendLog("UI action -> refreshAndReadFlag()")
-        readFlag(refreshFirst: true)
-    }
-
-    private func readFlag(refreshFirst: Bool) {
         guard guardConfigured() else { return }
         guard startAction("Reading flag...") else { return }
         Task {
             defer { endAction() }
-            if refreshFirst {
-                do {
-                    try await client.refresh()
-                    await syncFromClientState(status: "Read after refresh @ \(isoNow())")
-                } catch {
-                    setBannerError("Refresh before read failed. Reading cached value.")
-                    appendLog("Refresh before read failed; using cached state")
-                }
-            } else {
-                if let state = cachedState {
-                    applyReadResult(from: state, status: "Read from current SDK state @ \(isoNow())")
-                } else {
-                    await syncFromClientState(status: "Read from current SDK state @ \(isoNow())")
-                    if let state = cachedState {
-                        applyReadResult(from: state, status: nil)
-                    }
-                }
-                Task {
-                    await self.emitExposureForCurrentFlagRead()
-                }
-                setBannerSuccess("Read \(flagKey) from current state.")
-                return
+            do {
+                try await client.refresh()
+                await syncFromClientState(status: "Read after refresh @ \(isoNow())")
+            } catch {
+                setBannerError("Refresh before read failed. Reading cached value.")
+                appendLog("Refresh before read failed; using cached state")
             }
 
             let state = await client.getState()
