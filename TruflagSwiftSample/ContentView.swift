@@ -2,10 +2,27 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var vm = SampleViewModel()
+    @State private var showFlagPayload = false
 
     var body: some View {
         NavigationView {
             Form {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if !vm.currentAction.isEmpty {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                Text(vm.currentAction)
+                                    .font(.subheadline)
+                            }
+                        } else {
+                            Text(vm.bannerMessage)
+                                .font(.subheadline)
+                                .foregroundColor(vm.bannerIsError ? .red : .green)
+                        }
+                    }
+                }
+
                 Section("Configure") {
                     TextField("Client-side ID (env_c_...)", text: $vm.apiKey)
                         .textInputAutocapitalization(.never)
@@ -16,6 +33,7 @@ struct ContentView: View {
                     Button("Configure SDK") {
                         vm.configure()
                     }
+                    .disabled(!vm.currentAction.isEmpty)
                 }
 
                 Section("Identity") {
@@ -34,6 +52,7 @@ struct ContentView: View {
                         Spacer()
                         Button("Logout") { vm.logout() }
                     }
+                    .disabled(!vm.currentAction.isEmpty)
                 }
 
                 Section("Flags") {
@@ -53,15 +72,18 @@ struct ContentView: View {
                         Spacer()
                         Button("Send exposure") { vm.exposeCurrentFlag() }
                     }
+                    .disabled(!vm.currentAction.isEmpty)
                     Text("Last value: \(vm.lastFlagValue)")
                     Text("Reason: \(vm.assignmentReason.isEmpty ? "-" : vm.assignmentReason)")
                     Text("Config version: \(vm.configVersion.isEmpty ? "-" : vm.configVersion)")
-                    TextEditor(text: .constant(vm.rawPayload))
-                        .frame(minHeight: 100)
-                        .font(.system(.footnote, design: .monospaced))
+                    DisclosureGroup("Flag payload JSON", isExpanded: $showFlagPayload) {
+                        TextEditor(text: .constant(vm.rawPayload))
+                            .frame(minHeight: 72)
+                            .font(.system(.footnote, design: .monospaced))
+                    }
                 }
 
-                Section("Refresh") {
+                Section("Refresh / fallback polling") {
                     HStack {
                         Button("Refresh now") { vm.refresh() }
                         Spacer()
@@ -69,6 +91,7 @@ struct ContentView: View {
                             vm.toggleAutoRefresh()
                         }
                     }
+                    .disabled(!vm.currentAction.isEmpty)
                 }
 
                 Section("Events") {
@@ -76,11 +99,12 @@ struct ContentView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
                     TextEditor(text: $vm.eventPropertiesJSON)
-                        .frame(minHeight: 100)
+                        .frame(minHeight: 72)
                         .font(.system(.footnote, design: .monospaced))
                     Button("Send event") {
                         vm.sendEvent()
                     }
+                    .disabled(!vm.currentAction.isEmpty)
                 }
 
                 Section("Debug") {

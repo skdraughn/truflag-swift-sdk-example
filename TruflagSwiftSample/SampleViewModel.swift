@@ -33,9 +33,13 @@ final class SampleViewModel: ObservableObject {
     @Published private(set) var rawPayload: String = "{}"
     @Published private(set) var activeUserID: String = ""
     @Published private(set) var autoRefreshEnabled: Bool = false
+    @Published private(set) var currentAction: String = ""
+    @Published private(set) var bannerMessage: String = "Ready"
+    @Published private(set) var bannerIsError: Bool = false
 
     private var client = TruflagClient()
     private var refreshTask: Task<Void, Never>?
+    private var clientSubscriptionToken: UUID?
 
     func configure() {
         clearError()
@@ -54,14 +58,17 @@ final class SampleViewModel: ObservableObject {
 
         Task {
             do {
+                beginAction("Configuring SDK...")
                 try await client.configure(options)
                 isConfigured = true
                 activeUserID = user.id
-                isReady = await client.isReady()
-                lastRefreshStatus = "Configured and refreshed"
+                await ensureClientSubscription()
+                await syncFromClientState(status: "Configured and refreshed")
+                setBannerSuccess("SDK configured and initial refresh completed.")
             } catch {
-                lastError = "Configure failed: \(error.localizedDescription)"
+                setFailure("Configure failed", error: error)
             }
+            endAction()
         }
     }
 
@@ -69,20 +76,23 @@ final class SampleViewModel: ObservableObject {
         guard guardConfigured() else { return }
         Task {
             do {
+                beginAction("Refreshing flags...")
                 try await client.refresh()
-                isReady = await client.isReady()
-                lastRefreshStatus = "Refresh succeeded @ \(isoNow())"
+                await syncFromClientState(status: "Refresh succeeded @ \(isoNow())")
                 clearError()
+                setBannerSuccess("Flags refreshed.")
             } catch {
                 lastRefreshStatus = "Refresh failed @ \(isoNow())"
-                lastError = "Refresh failed: \(error.localizedDescription)"
+                setFailure("Refresh failed", error: error)
             }
+            endAction()
         }
     }
 
     func readFlag() {
         guard guardConfigured() else { return }
         Task {
+            beginAction("Reading flag...")
             switch fallbackType {
             case .bool:
                 let fallback = (fallbackRawValue as NSString).boolValue
@@ -101,6 +111,8 @@ final class SampleViewModel: ObservableObject {
             assignmentReason = payload["reason"] as? String ?? ""
             configVersion = payload["configVersion"] as? String ?? ""
             rawPayload = prettyJSON(payload)
+            setBannerSuccess("Read flag \(flagKey).")
+            endAction()
         }
     }
 
@@ -108,15 +120,17 @@ final class SampleViewModel: ObservableObject {
         guard guardConfigured() else { return }
         Task {
             do {
+                beginAction("Logging in...")
                 let user = TruflagUser(id: userId.trimmingCharacters(in: .whitespacesAndNewlines), attributes: buildAttributes())
                 try await client.login(user: user)
                 activeUserID = user.id
-                isReady = await client.isReady()
-                lastRefreshStatus = "Login succeeded"
+                await syncFromClientState(status: "Login succeeded")
                 clearError()
+                setBannerSuccess("Logged in as \(user.id).")
             } catch {
-                lastError = "Login failed: \(error.localizedDescription)"
+                setFailure("Login failed", error: error)
             }
+            endAction()
         }
     }
 
@@ -124,13 +138,15 @@ final class SampleViewModel: ObservableObject {
         guard guardConfigured() else { return }
         Task {
             do {
+                beginAction("Updating attributes...")
                 try await client.setAttributes(buildAttributes())
-                isReady = await client.isReady()
-                lastRefreshStatus = "Attributes updated"
+                await syncFromClientState(status: "Attributes updated")
                 clearError()
+                setBannerSuccess("Attributes updated.")
             } catch {
-                lastError = "Set attributes failed: \(error.localizedDescription)"
+                setFailure("Set attributes failed", error: error)
             }
+            endAction()
         }
     }
 
@@ -138,14 +154,16 @@ final class SampleViewModel: ObservableObject {
         guard guardConfigured() else { return }
         Task {
             do {
+                beginAction("Logging out...")
                 try await client.logout()
                 activeUserID = "anonymous"
-                isReady = await client.isReady()
-                lastRefreshStatus = "Logout succeeded"
+                await syncFromClientState(status: "Logout succeeded")
                 clearError()
+                setBannerSuccess("Logged out.")
             } catch {
-                lastError = "Logout failed: \(error.localizedDescription)"
+                setFailure("Logout failed", error: error)
             }
+            endAction()
         }
     }
 
@@ -153,13 +171,16 @@ final class SampleViewModel: ObservableObject {
         guard guardConfigured() else { return }
         Task {
             do {
+                beginAction("Sending event...")
                 let props = parseProperties(eventPropertiesJSON)
                 try await client.track(eventName: eventName, properties: props)
                 lastRefreshStatus = "Event sent @ \(isoNow())"
                 clearError()
+                setBannerSuccess("Event \(eventName) sent.")
             } catch {
-                lastError = "Track failed: \(error.localizedDescription)"
+                setFailure("Track failed", error: error)
             }
+            endAction()
         }
     }
 
@@ -167,12 +188,15 @@ final class SampleViewModel: ObservableObject {
         guard guardConfigured() else { return }
         Task {
             do {
+                beginAction("Sending exposure...")
                 try await client.expose(flagKey: flagKey)
                 lastRefreshStatus = "Exposure sent @ \(isoNow())"
                 clearError()
+                setBannerSuccess("Exposure sent for \(flagKey).")
             } catch {
-                lastError = "Expose failed: \(error.localizedDescription)"
+                setFailure("Expose failed", error: error)
             }
+            endAction()
         }
     }
 
@@ -187,12 +211,13 @@ final class SampleViewModel: ObservableObject {
                     try await Task.sleep(nanoseconds: 15_000_000_000)
                     try await client.refresh()
                     await MainActor.run {
-                        self.lastRefreshStatus = "Auto refresh succeeded @ \(self.isoNow())"
+                        self.lastRefreshStatus = "Manual auto-refresh succeeded @ \(self.isoNow())"
+                        self.setBannerSuccess("Auto refresh succeeded.")
                     }
                 } catch {
                     await MainActor.run {
                         self.lastRefreshStatus = "Auto refresh failed @ \(self.isoNow())"
-                        self.lastError = "Auto refresh failed: \(error.localizedDescription)"
+                        self.setFailure("Auto refresh failed", error: error)
                     }
                 }
             }
@@ -232,6 +257,7 @@ final class SampleViewModel: ObservableObject {
     private func guardConfigured() -> Bool {
         guard isConfigured else {
             lastError = "Configure the SDK before using actions"
+            setBannerError(lastError)
             return false
         }
         return true
@@ -239,6 +265,61 @@ final class SampleViewModel: ObservableObject {
 
     private func clearError() {
         lastError = ""
+    }
+
+    private func ensureClientSubscription() async {
+        guard clientSubscriptionToken == nil else { return }
+        let token = await client.subscribe { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.syncFromClientState(status: "Live update received @ \(self.isoNow())")
+            }
+        }
+        clientSubscriptionToken = token
+    }
+
+    private func syncFromClientState(status: String? = nil) async {
+        let state = await client.getState()
+        isReady = state.ready
+        activeUserID = state.userId.isEmpty ? activeUserID : state.userId
+        if let status {
+            lastRefreshStatus = status
+        }
+        if let lastError = state.lastError, !lastError.isEmpty {
+            self.lastError = lastError
+        }
+
+        if !flagKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let payload = await client.getFlagPayload(flagKey) ?? [:]
+            assignmentReason = payload["reason"] as? String ?? ""
+            configVersion = payload["configVersion"] as? String ?? (state.configVersion ?? "")
+            rawPayload = prettyJSON(payload)
+        } else {
+            configVersion = state.configVersion ?? ""
+        }
+    }
+
+    private func beginAction(_ title: String) {
+        currentAction = title
+    }
+
+    private func endAction() {
+        currentAction = ""
+    }
+
+    private func setBannerSuccess(_ message: String) {
+        bannerMessage = message
+        bannerIsError = false
+    }
+
+    private func setBannerError(_ message: String) {
+        bannerMessage = message
+        bannerIsError = true
+    }
+
+    private func setFailure(_ prefix: String, error: Error) {
+        lastError = "\(prefix): \(error.localizedDescription)"
+        setBannerError(lastError)
     }
 
     private func isoNow() -> String {
