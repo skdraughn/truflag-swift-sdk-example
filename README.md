@@ -37,6 +37,12 @@ GitHub Actions (`.github/workflows/ios-sample-ci.yml`) performs:
 2. Xcode project generation
 3. iOS simulator build + tests
 
+## Parity Readiness
+
+For strict RN-vs-Swift validation readiness, see:
+
+- `PARITY_READINESS_CHECKLIST.md`
+
 GitHub Actions (`.github/workflows/ios-unsigned-ipa.yml`) can produce an unsigned device `.ipa` artifact for sideload workflows.
 
 ## Build an IPA from GitHub Actions (Windows-friendly)

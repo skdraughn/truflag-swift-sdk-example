@@ -578,14 +578,11 @@ final class SampleViewModel: ObservableObject {
 
     private func shouldIncludeSDKLog(_ line: String) -> Bool {
         let keys = [
-            "refreshInternal[",
-            "fetchFlags[",
-            "withRetry()",
-            "HTTP GET start",
-            "HTTP GET success",
-            "HTTP GET failed",
-            "HTTP GET network_error",
-            "refresh() called source=",
+            "Truflag refresh started",
+            "Truflag stale config detected, retrying fresh fetch",
+            "Truflag refresh succeeded",
+            "Truflag refresh failed",
+            "refresh() source=",
             "joined in-flight refresh",
         ]
         return keys.contains { line.contains($0) }
