@@ -6,6 +6,27 @@ import UIKit
 
 @MainActor
 final class SampleViewModel: ObservableObject {
+    actor FetchFaultInjector {
+        private var pendingFlagFailures: Int = 0
+
+        func addFlagFailures(_ count: Int) -> Int {
+            pendingFlagFailures = max(0, pendingFlagFailures + count)
+            return pendingFlagFailures
+        }
+
+        func consumeIfNeeded(for request: URLRequest) -> Bool {
+            guard pendingFlagFailures > 0 else { return false }
+            guard request.httpMethod?.uppercased() == "GET" else { return false }
+            guard request.url?.path == "/v1/flags" else { return false }
+            pendingFlagFailures -= 1
+            return true
+        }
+
+        func pendingCount() -> Int {
+            pendingFlagFailures
+        }
+    }
+
     enum FallbackType: String, CaseIterable, Identifiable {
         case bool = "Bool"
         case string = "String"
@@ -31,6 +52,8 @@ final class SampleViewModel: ObservableObject {
     @Published var fallbackRawValue: String = "coins"
     @Published var eventName: String = "demo_event"
     @Published var eventPropertiesJSON: String = "{\n  \"source\": \"ios-swift-sample\"\n}"
+    @Published var trackImmediateFlush: Bool = false
+    @Published var autoExposeOnStateRead: Bool = true
 
     @Published private(set) var isConfigured: Bool = false
     @Published private(set) var isReady: Bool = false
@@ -49,9 +72,11 @@ final class SampleViewModel: ObservableObject {
     @Published private(set) var pollingActive: Bool = false
     @Published private(set) var lastStreamEventAt: String = "-"
     @Published private(set) var lastStreamEventVersion: String = "-"
+    @Published private(set) var pendingInjectedRefreshFailures: Int = 0
     @Published private(set) var logs: [String] = []
 
     private var client = TruflagClient()
+    private let fetchFaultInjector = FetchFaultInjector()
     private var refreshTask: Task<Void, Never>?
     private var stateStreamTask: Task<Void, Never>?
     private var logStreamTask: Task<Void, Never>?
@@ -80,6 +105,13 @@ final class SampleViewModel: ObservableObject {
         let attributes = buildAttributes()
         let user = TruflagUser(id: userId.trimmingCharacters(in: .whitespacesAndNewlines), attributes: attributes)
         let options = TruflagConfigureOptions(apiKey: apiKey, user: user, baseURL: baseURL)
+        let injector = fetchFaultInjector
+        let fetchFn: TruflagFetchFunction = { request in
+            if await injector.consumeIfNeeded(for: request) {
+                throw URLError(.timedOut)
+            }
+            return try await URLSession.shared.data(for: request)
+        }
         let tunedOptions = TruflagConfigureOptions(
             apiKey: options.apiKey,
             user: options.user,
@@ -92,6 +124,7 @@ final class SampleViewModel: ObservableObject {
             telemetryFlushIntervalMs: options.telemetryFlushIntervalMs,
             telemetryBatchSize: options.telemetryBatchSize,
             telemetryEnabled: options.telemetryEnabled,
+            fetchFn: fetchFn,
             debugLoggingEnabled: true
         )
 
@@ -104,6 +137,7 @@ final class SampleViewModel: ObservableObject {
                 activeUserID = user.id
                 await ensureClientStreams()
                 await syncFromClientState(status: "Configured. Waiting for first refresh...")
+                await refreshPendingInjectedFailures()
                 setBannerSuccess("SDK configured. Initial refresh runs in background.")
             } catch {
                 setFailure("Configure failed", error: error)
@@ -121,10 +155,12 @@ final class SampleViewModel: ObservableObject {
                 try await client.refresh()
                 appendLog("Manual refresh succeeded")
                 await syncFromClientState(status: "Refresh succeeded @ \(isoNow())")
+                await refreshPendingInjectedFailures()
                 clearError()
                 setBannerSuccess("Flags refreshed.")
             } catch {
                 lastRefreshStatus = "Refresh failed @ \(isoNow())"
+                await refreshPendingInjectedFailures()
                 setFailure("Refresh failed", error: error)
             }
         }
@@ -144,8 +180,9 @@ final class SampleViewModel: ObservableObject {
                 await syncFromClientState(status: "Read from current SDK state @ \(isoNow())")
             }
         }
-        Task {
-            await self.emitExposureForCurrentFlagRead()
+        if autoExposeOnStateRead {
+            client.notifyFlagRead(flagKey: flagKey)
+            appendLog("Auto exposure enqueued for \(flagKey) via notifyFlagRead()")
         }
         setBannerSuccess("Read \(flagKey) from current state.")
     }
@@ -239,11 +276,11 @@ final class SampleViewModel: ObservableObject {
             defer { endAction() }
             do {
                 let props = parseProperties(eventPropertiesJSON)
-                try await client.track(eventName: eventName, properties: props)
+                try await client.track(eventName: eventName, properties: props, immediate: trackImmediateFlush)
                 lastRefreshStatus = "Event sent @ \(isoNow())"
                 clearError()
                 setBannerSuccess("Event \(eventName) sent.")
-                appendLog("Sent event \(eventName)")
+                appendLog("Sent event \(eventName) immediate=\(trackImmediateFlush)")
             } catch {
                 setFailure("Track failed", error: error)
             }
@@ -294,6 +331,16 @@ final class SampleViewModel: ObservableObject {
                     }
                 }
             }
+        }
+    }
+
+    func failNextRefresh() {
+        guard guardConfigured() else { return }
+        Task {
+            let pending = await fetchFaultInjector.addFlagFailures(1)
+            pendingInjectedRefreshFailures = pending
+            setBannerSuccess("Next refresh failure injected. Pending failures: \(pending)")
+            appendLog("Injected one /v1/flags failure. pending=\(pending)")
         }
     }
 
@@ -383,6 +430,10 @@ final class SampleViewModel: ObservableObject {
     private func syncFromClientState(status: String? = nil) async {
         let state = await client.getState()
         applyStateSnapshot(state, status: status)
+    }
+
+    private func refreshPendingInjectedFailures() async {
+        pendingInjectedRefreshFailures = await fetchFaultInjector.pendingCount()
     }
 
     private func applyStateSnapshot(_ state: TruflagClientState, status: String?) {
@@ -535,21 +586,6 @@ final class SampleViewModel: ObservableObject {
         }
     }
 
-    private func emitExposureForCurrentFlagRead() async {
-        let key = flagKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { return }
-        switch fallbackType {
-        case .bool:
-            let fallback = (fallbackRawValue as NSString).boolValue
-            let _: Bool = await client.getFlag(key, defaultValue: fallback)
-        case .string:
-            let _: String = await client.getFlag(key, defaultValue: fallbackRawValue)
-        case .number:
-            let fallback = Double(fallbackRawValue) ?? 0
-            let _: Double = await client.getFlag(key, defaultValue: fallback)
-        }
-    }
-
     private func renderRawValue(_ value: Any) -> String {
         if value is NSNull { return "null" }
         if let bool = value as? Bool { return bool ? "true" : "false" }
@@ -570,10 +606,7 @@ final class SampleViewModel: ObservableObject {
     private func appendSDKLogIfRelevant(_ line: String) {
         guard line.hasPrefix("[TruflagSDK][DEBUG]") else { return }
         guard shouldIncludeSDKLog(line) else { return }
-        logs.append(line)
-        if logs.count > 400 {
-            logs.removeFirst(logs.count - 400)
-        }
+        appendLogLine(line)
     }
 
     private func shouldIncludeSDKLog(_ line: String) -> Bool {
@@ -584,11 +617,26 @@ final class SampleViewModel: ObservableObject {
             "Truflag refresh failed",
             "refresh() source=",
             "joined in-flight refresh",
+            "Truflag stream",
+            "Stream status",
+            "HTTP GET",
+            "HTTP POST",
+            "telemetry",
+            "track()",
+            "expose()",
+            "notifyFlagRead()",
         ]
         return keys.contains { line.contains($0) }
     }
 
+    private func appendLogLine(_ line: String) {
+        logs.append(line)
+        if logs.count > 500 {
+            logs.removeFirst(logs.count - 500)
+        }
+    }
+
     private func appendLog(_ message: String) {
-        appendSDKLogIfRelevant(message)
+        appendLogLine("[Sample][\(isoNow())] \(message)")
     }
 }

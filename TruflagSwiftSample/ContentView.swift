@@ -46,15 +46,12 @@ struct ContentView: View {
                     TextField("createdAt ISO", text: $vm.createdAtISO)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
-                    VStack(spacing: 10) {
-                        Button("Login") { vm.login() }
-                            .fullWidthTapRow()
-                        Button("Set attributes") { vm.setAttributes() }
-                            .fullWidthTapRow()
-                        Button("Logout") { vm.logout() }
-                            .fullWidthTapRow()
-                    }
-                    .disabled(!vm.currentAction.isEmpty)
+                    Button("Login") { vm.login() }
+                        .disabled(!vm.currentAction.isEmpty)
+                    Button("Set attributes") { vm.setAttributes() }
+                        .disabled(!vm.currentAction.isEmpty)
+                    Button("Logout") { vm.logout() }
+                        .disabled(!vm.currentAction.isEmpty)
                 }
 
                 Section("Flags") {
@@ -69,16 +66,13 @@ struct ContentView: View {
                     TextField("Fallback value", text: $vm.fallbackRawValue)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
-                    VStack(spacing: 10) {
-                        Button("Read flag (state)") { vm.readFlag() }
-                            .fullWidthTapRow()
-                        Button("Refresh + Read") { vm.refreshAndReadFlag() }
-                            .fullWidthTapRow()
-                    }
-                    .disabled(!vm.currentAction.isEmpty)
+                    Toggle("Auto expose on state read", isOn: $vm.autoExposeOnStateRead)
+                    Button("Read flag (state)") { vm.readFlag() }
+                        .disabled(!vm.currentAction.isEmpty)
+                    Button("Refresh + Read") { vm.refreshAndReadFlag() }
+                        .disabled(!vm.currentAction.isEmpty)
                     Button("Send exposure") { vm.exposeCurrentFlag() }
-                        .fullWidthTapRow()
-                    .disabled(!vm.currentAction.isEmpty)
+                        .disabled(!vm.currentAction.isEmpty)
                     Text("Last value: \(vm.lastFlagValue)")
                     Text("Reason: \(vm.assignmentReason.isEmpty ? "-" : vm.assignmentReason)")
                     Text("Config version: \(vm.configVersion.isEmpty ? "-" : vm.configVersion)")
@@ -90,13 +84,12 @@ struct ContentView: View {
                 }
 
                 Section("Refresh / fallback polling") {
-                    VStack(spacing: 10) {
-                        Button("Refresh now") { vm.refresh() }
-                            .fullWidthTapRow()
-                        Button(vm.autoRefreshEnabled ? "Stop auto-refresh" : "Start auto-refresh") {
-                            vm.toggleAutoRefresh()
-                        }
-                        .fullWidthTapRow()
+                    Button("Refresh now") { vm.refresh() }
+                        .disabled(!vm.currentAction.isEmpty)
+                    Button("Inject next refresh failure") { vm.failNextRefresh() }
+                        .disabled(!vm.currentAction.isEmpty)
+                    Button(vm.autoRefreshEnabled ? "Stop auto-refresh" : "Start auto-refresh") {
+                        vm.toggleAutoRefresh()
                     }
                     .disabled(!vm.currentAction.isEmpty)
                 }
@@ -108,6 +101,7 @@ struct ContentView: View {
                     TextEditor(text: $vm.eventPropertiesJSON)
                         .frame(minHeight: 56)
                         .font(.system(.footnote, design: .monospaced))
+                    Toggle("Immediate flush", isOn: $vm.trackImmediateFlush)
                     Button("Send event") {
                         vm.sendEvent()
                     }
@@ -121,6 +115,7 @@ struct ContentView: View {
                     DebugRow(label: "Polling", value: vm.pollingActive ? "active" : "off")
                     DebugRow(label: "Last stream event", value: vm.lastStreamEventAt)
                     DebugRow(label: "Event version", value: vm.lastStreamEventVersion)
+                    DebugRow(label: "Injected refresh fails", value: "\(vm.pendingInjectedRefreshFailures)")
                     DebugRow(label: "Active user", value: vm.activeUserID.isEmpty ? "-" : vm.activeUserID)
                     DebugRow(label: "Last refresh", value: vm.lastRefreshStatus)
                     if !vm.lastError.isEmpty {
@@ -160,14 +155,6 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .navigationViewStyle(.stack)
-    }
-}
-
-private extension View {
-    func fullWidthTapRow() -> some View {
-        self
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
     }
 }
 
