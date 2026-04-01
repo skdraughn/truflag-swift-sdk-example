@@ -181,8 +181,12 @@ final class SampleViewModel: ObservableObject {
             }
         }
         if autoExposeOnStateRead {
-            client.notifyFlagRead(flagKey: flagKey)
-            appendLog("Auto exposure enqueued for \(flagKey) via notifyFlagRead()")
+            let key = flagKey
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.client.notifyFlagRead(flagKey: key)
+                self.appendLog("Auto exposure enqueued for \(key) via notifyFlagRead()")
+            }
         }
         setBannerSuccess("Read \(flagKey) from current state.")
     }
